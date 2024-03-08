@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"time"
 
@@ -44,13 +45,14 @@ func main() {
 	}
 	time.Sleep(1 * time.Second)
 
-	var (
-		key  = "test_key"
-		data = []byte("test data")
-	)
+	data := []byte("test data")
 
-	if err := s2.Write(key, bytes.NewReader(data)); err != nil {
-		log.Fatal(err)
+	for i := 0; i < 10; i++ {
+		key := fmt.Sprintf("test_key_%d", i)
+		if err := s2.Write(key, bytes.NewReader(data)); err != nil {
+			log.Fatal(err)
+		}
+		time.Sleep(time.Millisecond * 100)
 	}
 
 	select {}

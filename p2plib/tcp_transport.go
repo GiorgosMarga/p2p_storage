@@ -4,17 +4,22 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"time"
+	"sync"
 )
 
 type TCPPeer struct {
 	net.Conn
+	wg *sync.WaitGroup
 }
 
 func NewTCPPeer(conn net.Conn) *TCPPeer {
 	return &TCPPeer{
 		Conn: conn,
+		wg:   &sync.WaitGroup{},
 	}
+}
+func (p *TCPPeer) CloseStream() {
+	p.wg.Done()
 }
 func (p *TCPPeer) Send(b []byte) error {
 	_, err := p.Write(b)
@@ -78,16 +83,24 @@ func (tr *TCPTransport) handleConn(conn net.Conn) {
 			return
 		}
 	}
-	rpc := RPC{}
 
 	for {
+		rpc := RPC{}
+
 		if err := tr.Decoder.Decode(conn, &rpc); err != nil {
 			log.Println(err)
 			continue
 		}
 		rpc.From = conn.RemoteAddr().String()
+		if rpc.Stream {
+			p.wg.Add(1)
+			fmt.Printf("[%s] Incoming stream. Waiting....\n", tr.ListenAddr)
+			p.wg.Wait()
+			fmt.Printf("[%s] Stream closed. Resuming....\n", tr.ListenAddr)
+			continue
+
+		}
 		tr.rpcchan <- rpc
-		time.Sleep(10 * time.Second)
 	}
 }
 

@@ -1,5 +1,3 @@
-// FIXME: FIX BLOCKING IN RPC DEAMON
-
 package main
 
 import (
@@ -98,7 +96,7 @@ func (f *FileServer) handleMessageStoreData(msg MessageStoreData, from string) e
 	}
 
 	fmt.Printf("received message from %s and wrote %d on disk\n", from, n)
-
+	peer.CloseStream()
 	return nil
 }
 
@@ -117,6 +115,7 @@ func (f *FileServer) broadcast(msg *Message) error {
 	}
 
 	for _, peer := range f.peers {
+		peer.Send([]byte{p2plib.IncomingMessage})
 		if err := peer.Send(buf.Bytes()); err != nil {
 			return err
 		}
@@ -142,15 +141,15 @@ func (f *FileServer) Write(key string, r io.Reader) error {
 	if err := f.broadcast(&msg); err != nil {
 		return err
 	}
-
-	time.Sleep(3 * time.Second)
-	fmt.Println("Sent")
+	time.Sleep(10 * time.Millisecond)
 	for _, peer := range f.peers {
+		peer.Send([]byte{p2plib.IncomingStream})
 		if _, err := io.Copy(peer, buf); err != nil {
 			fmt.Println(err)
 			return err
 		}
 	}
+
 	return nil
 }
 
