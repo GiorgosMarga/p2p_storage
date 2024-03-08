@@ -12,15 +12,15 @@ import (
 )
 
 type FileServerOpts struct {
-	Storage        Storage
 	Transport      p2plib.Transport
-	StorageRoot    string
 	OnPeer         func(p2plib.Peer) error
 	BootstrapNodes []string
 }
 
 type FileServer struct {
 	FileServerOpts
+	Storage Storage
+
 	quitchan chan struct{}
 
 	peers     map[string]p2plib.Peer
@@ -28,7 +28,13 @@ type FileServer struct {
 }
 
 func NewFileServer(listenAddr string, opts FileServerOpts) *FileServer {
+	casOpts := CASOpts{
+		TransformFunc: TransformFunc,
+		RootPath:      listenAddr + "_storage",
+	}
+
 	return &FileServer{
+		Storage:        NewCAS(casOpts),
 		FileServerOpts: opts,
 		quitchan:       make(chan struct{}),
 		peers:          make(map[string]p2plib.Peer),
@@ -98,6 +104,9 @@ func (f *FileServer) handleMessageStoreData(msg MessageStoreData, from string) e
 	fmt.Printf("received message from %s and wrote %d on disk\n", from, n)
 	peer.CloseStream()
 	return nil
+}
+func (f *FileServer) Close() {
+	close(f.quitchan)
 }
 
 type Message struct {

@@ -94,9 +94,9 @@ func (tr *TCPTransport) handleConn(conn net.Conn) {
 		rpc.From = conn.RemoteAddr().String()
 		if rpc.Stream {
 			p.wg.Add(1)
-			fmt.Printf("[%s] Incoming stream. Waiting....\n", tr.ListenAddr)
+			log.Printf("[%s] Incoming stream. Waiting....\n", tr.ListenAddr)
 			p.wg.Wait()
-			fmt.Printf("[%s] Stream closed. Resuming....\n", tr.ListenAddr)
+			log.Printf("[%s] Stream closed. Resuming....\n", tr.ListenAddr)
 			continue
 
 		}

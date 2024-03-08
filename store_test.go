@@ -30,7 +30,7 @@ func TestWrite(t *testing.T) {
 	assert.NotNil(t, s)
 	key := "testkey"
 	data := []byte("test data")
-	err := s.writeStream(key, bytes.NewReader(data))
+	_, err := s.writeStream(key, bytes.NewReader(data))
 	assert.Nil(t, err)
 
 	assert.True(t, s.Has(key))

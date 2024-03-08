@@ -15,15 +15,9 @@ func makeServer(addr string, bootstrap ...string) *FileServer {
 		ListenAddr:    addr,
 		HandshakeFunc: p2plib.NOPHandshakeFunc,
 	}
-	casOpts := CASOpts{
-		TransformFunc: TransformFunc,
-		RootPath:      addr + "_storage",
-	}
 	tcpTransport := p2plib.NewTCPTransport(tcpOpts)
 	fileServerOpts := FileServerOpts{
-		Storage:        NewCAS(casOpts),
 		Transport:      tcpTransport,
-		StorageRoot:    casOpts.RootPath,
 		BootstrapNodes: bootstrap,
 	}
 	s := NewFileServer(tcpOpts.ListenAddr, fileServerOpts)
