@@ -12,7 +12,7 @@ import (
 )
 
 type Storage interface {
-	Write(key string, r io.Reader) error
+	Write(key string, r io.Reader) (int64, error)
 	Read(key string) (io.Reader, error)
 	Has(key string) bool
 	Delete(key string) error
@@ -57,7 +57,6 @@ func TransformFunc(key string) Path {
 type CASOpts struct {
 	TransformFunc func(string) Path
 	RootPath      string
-	Depth         int
 }
 
 type CAS struct {
@@ -70,29 +69,30 @@ func NewCAS(opts CASOpts) *CAS {
 	}
 }
 
-func (s *CAS) Write(key string, r io.Reader) error {
+func (s *CAS) Write(key string, r io.Reader) (int64, error) {
 	return s.writeStream(key, r)
 }
-func (s *CAS) writeStream(key string, r io.Reader) error {
+func (s *CAS) writeStream(key string, r io.Reader) (int64, error) {
 	pathname := s.TransformFunc(key)
 	// joins the root with the generated hashed path root/*/*/*...
 	withRoot := pathname.WithRoot(s.RootPath)
 	if err := os.MkdirAll(withRoot, os.ModePerm); err != nil {
 		fmt.Println(err)
-		return err
+		return 0, err
 	}
 	fullPathName := fmt.Sprintf("%s/%s", s.RootPath, pathname.GetFullPath())
 	f, err := os.Create(fullPathName)
 	if err != nil {
-		return err
+		fmt.Println(err)
+		return 0, err
 	}
 	defer f.Close()
 	n, err := io.Copy(f, r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	fmt.Printf("I wrote %d bytes in disk at %s\n", n, fullPathName)
-	return nil
+	return n, nil
 }
 
 func (s *CAS) Read(key string) (io.Reader, error) {

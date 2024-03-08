@@ -1,6 +1,9 @@
 package p2plib
 
+import "net"
+
 type Peer interface {
+	net.Conn
 	Send([]byte) error
 }
 

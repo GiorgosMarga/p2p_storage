@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 )
 
 type TCPPeer struct {
@@ -15,7 +16,11 @@ func NewTCPPeer(conn net.Conn) *TCPPeer {
 		Conn: conn,
 	}
 }
-func (p *TCPPeer) Send([]byte) error {
+func (p *TCPPeer) Send(b []byte) error {
+	_, err := p.Write(b)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -23,6 +28,7 @@ type TCPTransportOpts struct {
 	ListenAddr    string
 	HandshakeFunc HandshakeFunc
 	Decoder       Decoder
+	OnPeer        func(Peer) error
 }
 type TCPTransport struct {
 	TCPTransportOpts
@@ -67,7 +73,11 @@ func (tr *TCPTransport) handleConn(conn net.Conn) {
 			return
 		}
 	}
-	fmt.Printf("[%s] connected with (%s)\n", tr.ListenAddr, conn.RemoteAddr())
+	if tr.OnPeer != nil {
+		if err := tr.OnPeer(p); err != nil {
+			return
+		}
+	}
 	rpc := RPC{}
 
 	for {
@@ -77,6 +87,7 @@ func (tr *TCPTransport) handleConn(conn net.Conn) {
 		}
 		rpc.From = conn.RemoteAddr().String()
 		tr.rpcchan <- rpc
+		time.Sleep(10 * time.Second)
 	}
 }
 
