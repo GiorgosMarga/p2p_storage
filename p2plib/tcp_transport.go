@@ -120,3 +120,7 @@ func (tr *TCPTransport) Close() error {
 func (tr *TCPTransport) Consume() <-chan RPC {
 	return tr.rpcchan
 }
+
+func (tr *TCPTransport) Addr() string {
+	return tr.ListenAddr
+}

@@ -1,8 +1,10 @@
 package p2plib
 
 const (
-	IncomingMessage = 0x1
-	IncomingStream  = 0x2
+	IncomingMessage = iota
+	IncomingStream
+	HaveFile
+	DontHaveFile
 )
 
 type RPC struct {

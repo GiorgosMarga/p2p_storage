@@ -34,6 +34,13 @@ func TestWrite(t *testing.T) {
 	assert.Nil(t, err)
 
 	assert.True(t, s.Has(key))
+
+	err = s.Delete(key)
+	assert.Nil(t, err)
+	has := s.Has(key)
+	fmt.Println(has)
+	assert.False(t, has)
+
 }
 
 func TestRead(t *testing.T) {
@@ -46,7 +53,7 @@ func TestRead(t *testing.T) {
 	data := []byte("test data")
 	s.writeStream(key, bytes.NewReader(data))
 
-	r, err := s.Read(key)
+	_, r, err := s.Read(key)
 	assert.Nil(t, err)
 	buf := make([]byte, 1024)
 	r.Read(buf)

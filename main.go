@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"time"
 
@@ -40,14 +41,26 @@ func main() {
 	time.Sleep(1 * time.Second)
 
 	data := []byte("test data")
+	key := "my_key"
 
-	for i := 0; i < 10; i++ {
-		key := fmt.Sprintf("test_key_%d", i)
-		if err := s2.Write(key, bytes.NewReader(data)); err != nil {
-			log.Fatal(err)
-		}
-		time.Sleep(time.Millisecond * 100)
+	if err := s2.Store(key, bytes.NewReader(data)); err != nil {
+		log.Fatal(err)
 	}
-
-	select {}
+	if err := s2.storage.Delete(key); err != nil {
+		fmt.Println("Deleting:", err)
+	}
+	r, err := s2.Read(key)
+	if err != nil {
+		log.Fatal(err)
+	}
+	b, _ := io.ReadAll(r)
+	fmt.Println(string(b))
+	// for i := 0; i < 10; i++ {
+	// 	key := fmt.Sprintf("test_key_%d", i)
+	// 	if err := s2.Store(key, bytes.NewReader(data)); err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	time.Sleep(time.Millisecond * 100)
+	// }
+	time.Sleep(1 * time.Second)
 }

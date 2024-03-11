@@ -41,7 +41,7 @@ func TestStore(t *testing.T) {
 	err = s2.Start()
 	assert.Nil(t, err)
 
-	err = s2.Write(key, bytes.NewReader(data))
+	err = s2.Store(key, bytes.NewReader(data))
 	assert.Nil(t, err)
 
 	time.Sleep(1 * time.Second)

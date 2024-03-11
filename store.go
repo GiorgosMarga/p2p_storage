@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
@@ -13,7 +12,7 @@ import (
 
 type Storage interface {
 	Write(key string, r io.Reader) (int64, error)
-	Read(key string) (io.Reader, error)
+	Read(key string) (int64, io.Reader, error)
 	Has(key string) bool
 	Delete(key string) error
 	Clear() error
@@ -95,18 +94,16 @@ func (s *CAS) writeStream(key string, r io.Reader) (int64, error) {
 	return n, nil
 }
 
-func (s *CAS) Read(key string) (io.Reader, error) {
+func (s *CAS) Read(key string) (int64, io.Reader, error) {
 	f, err := s.readStream(key)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
-	defer f.Close()
-	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, f)
-	return buf, err
+	stat, err := f.Stat()
+	return stat.Size(), f, err
 }
 
-func (s *CAS) readStream(key string) (io.ReadCloser, error) {
+func (s *CAS) readStream(key string) (*os.File, error) {
 	path := s.TransformFunc(key)
 	fullpath := fmt.Sprintf("%s/%s", path.WithRoot(s.RootPath), path.Filename)
 	return os.Open(fullpath)
@@ -116,7 +113,7 @@ func (s *CAS) Has(key string) bool {
 	path := s.TransformFunc(key)
 	fullPathWithRoot := fmt.Sprintf("%s/%s", path.WithRoot(s.RootPath), path.Filename)
 	_, err := os.Stat(fullPathWithRoot)
-	return !errors.Is(os.ErrNotExist, err)
+	return !errors.Is(err, os.ErrNotExist)
 }
 
 func (s *CAS) Delete(key string) error {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -19,7 +20,7 @@ type FileServerOpts struct {
 
 type FileServer struct {
 	FileServerOpts
-	Storage Storage
+	storage Storage
 
 	quitchan chan struct{}
 
@@ -34,67 +35,90 @@ func NewFileServer(listenAddr string, opts FileServerOpts) *FileServer {
 	}
 
 	return &FileServer{
-		Storage:        NewCAS(casOpts),
+		storage:        NewCAS(casOpts),
 		FileServerOpts: opts,
 		quitchan:       make(chan struct{}),
 		peers:          make(map[string]p2plib.Peer),
 	}
 }
 
-func (f *FileServer) OnPeer(p p2plib.Peer) error {
-	f.peersLock.Lock()
-	defer f.peersLock.Unlock()
+func (s *FileServer) OnPeer(p p2plib.Peer) error {
+	s.peersLock.Lock()
+	defer s.peersLock.Unlock()
 
-	f.peers[p.RemoteAddr().String()] = p
+	s.peers[p.RemoteAddr().String()] = p
 	fmt.Printf("connected with %s\n", p.RemoteAddr().String())
 	return nil
 }
 
-func (f *FileServer) Start() error {
-	if err := f.Transport.ListenAndAccept(); err != nil {
+func (s *FileServer) Start() error {
+	if err := s.Transport.ListenAndAccept(); err != nil {
 		return err
 	}
 
-	if len(f.BootstrapNodes) > 0 {
-		for _, addr := range f.BootstrapNodes {
-			if err := f.Transport.Dial(addr); err != nil {
+	if len(s.BootstrapNodes) > 0 {
+		for _, addr := range s.BootstrapNodes {
+			if err := s.Transport.Dial(addr); err != nil {
 				return err
 			}
 		}
 	}
 
-	go f.HandleMessages()
+	go s.HandleMessages()
 	return nil
 }
 
-func (f *FileServer) HandleMessages() error {
+func (s *FileServer) HandleMessages() error {
 	defer func() {
-		f.Transport.Close()
+		s.Transport.Close()
 	}()
 	for {
 		select {
-		case rpc := <-f.Transport.Consume():
+		case rpc := <-s.Transport.Consume():
 			var msg Message
 			if err := gob.NewDecoder(bytes.NewReader(rpc.Payload)).Decode(&msg); err != nil {
 				return err
 			}
 			switch v := msg.Payload.(type) {
 			case MessageStoreData:
-				f.handleMessageStoreData(v, rpc.From)
+				s.handleMessageStoreData(v, rpc.From)
+			case MessageReadData:
+				s.handleMessageReadData(v, rpc.From)
 			}
-		case <-f.quitchan:
+		case <-s.quitchan:
 			return nil
 		}
 	}
 }
+func (s *FileServer) handleMessageReadData(msg MessageReadData, from string) error {
+	peer, ok := s.peers[from]
+	if !ok {
+		return fmt.Errorf("peer not connected")
+	}
+	peer.Send([]byte{p2plib.IncomingStream})
 
-func (f *FileServer) handleMessageStoreData(msg MessageStoreData, from string) error {
-	peer, ok := f.peers[from]
+	if !s.storage.Has(msg.Key) {
+		peer.Send([]byte{p2plib.DontHaveFile})
+		return fmt.Errorf("[%s] dont have file (%s)", s.Transport.Addr(), msg.Key)
+	}
+
+	size, file, err := s.storage.Read(msg.Key)
+	if err != nil {
+		return err
+	}
+	peer.Send([]byte{p2plib.HaveFile})
+	binary.Write(peer, binary.LittleEndian, size)
+	io.Copy(peer, file)
+	fmt.Printf("[%s] sent file (%s) to %s\n", s.Transport.Addr(), msg.Key, peer.RemoteAddr())
+	return nil
+}
+func (s *FileServer) handleMessageStoreData(msg MessageStoreData, from string) error {
+	peer, ok := s.peers[from]
 	if !ok {
 		return fmt.Errorf("peer not connected")
 	}
 	r := io.LimitReader(peer, msg.Size)
-	n, err := f.Storage.Write(msg.Key, r)
+	n, err := s.storage.Write(msg.Key, r)
 
 	if err != nil {
 		fmt.Println("Error:", err)
@@ -105,8 +129,8 @@ func (f *FileServer) handleMessageStoreData(msg MessageStoreData, from string) e
 	peer.CloseStream()
 	return nil
 }
-func (f *FileServer) Close() {
-	close(f.quitchan)
+func (s *FileServer) Close() {
+	close(s.quitchan)
 }
 
 type Message struct {
@@ -116,14 +140,17 @@ type MessageStoreData struct {
 	Key  string
 	Size int64
 }
+type MessageReadData struct {
+	Key string
+}
 
-func (f *FileServer) broadcast(msg *Message) error {
+func (s *FileServer) broadcast(msg *Message) error {
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
 		return err
 	}
 
-	for _, peer := range f.peers {
+	for _, peer := range s.peers {
 		peer.Send([]byte{p2plib.IncomingMessage})
 		if err := peer.Send(buf.Bytes()); err != nil {
 			return err
@@ -132,12 +159,12 @@ func (f *FileServer) broadcast(msg *Message) error {
 	return nil
 }
 
-func (f *FileServer) Write(key string, r io.Reader) error {
+func (s *FileServer) Store(key string, r io.Reader) error {
 	var (
 		buf = new(bytes.Buffer)
 		tee = io.TeeReader(r, buf)
 	)
-	n, err := f.Storage.Write(key, tee)
+	n, err := s.storage.Write(key, tee)
 	if err != nil {
 		return err
 	}
@@ -147,14 +174,13 @@ func (f *FileServer) Write(key string, r io.Reader) error {
 			Size: n,
 		},
 	}
-	if err := f.broadcast(&msg); err != nil {
+	if err := s.broadcast(&msg); err != nil {
 		return err
 	}
 	time.Sleep(10 * time.Millisecond)
-	for _, peer := range f.peers {
+	for _, peer := range s.peers {
 		peer.Send([]byte{p2plib.IncomingStream})
 		if _, err := io.Copy(peer, buf); err != nil {
-			fmt.Println(err)
 			return err
 		}
 	}
@@ -162,6 +188,47 @@ func (f *FileServer) Write(key string, r io.Reader) error {
 	return nil
 }
 
+func (s *FileServer) Read(key string) (io.Reader, error) {
+	if s.storage.Has(key) {
+		fmt.Printf("[%s] found file (%s) on disk.\n", s.Transport.Addr(), key)
+		_, r, err := s.storage.Read(key)
+		return r, err
+	}
+
+	msg := Message{
+		Payload: MessageReadData{
+			Key: key,
+		},
+	}
+
+	if err := s.broadcast(&msg); err != nil {
+		return nil, err
+	}
+	fmt.Println(s.peers)
+	for _, peer := range s.peers {
+		peekBuf := make([]byte, 1)
+		peer.Read(peekBuf)
+		if peekBuf[0] == p2plib.DontHaveFile {
+			fmt.Printf("[%s] peer (%s) dont have file\n", s.Transport.Addr(), peer.RemoteAddr())
+			continue
+		}
+		var filesize int64
+		binary.Read(peer, binary.LittleEndian, &filesize)
+		fileReader := io.LimitReader(peer, filesize)
+		if _, err := s.storage.Write(key, fileReader); err != nil {
+			return nil, err
+		}
+		peer.CloseStream()
+		if peekBuf[0] == p2plib.HaveFile {
+			fmt.Printf("[%s] peer %s sent file\n", s.Transport.Addr(), peer.RemoteAddr())
+			break
+		}
+	}
+	_, r, err := s.storage.Read(key)
+	return r, err
+}
+
 func init() {
 	gob.Register(MessageStoreData{})
+	gob.Register(MessageReadData{})
 }
