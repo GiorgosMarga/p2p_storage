@@ -11,10 +11,13 @@ import (
 )
 
 type Storage interface {
-	Write(key string, r io.Reader) (int64, error)
-	Read(key string) (int64, io.Reader, error)
-	Has(key string) bool
-	Delete(key string) error
+	Write(string, io.Reader) (int64, error)
+	WriteEncryptedData([]byte, string, io.Reader, io.Writer) (int64, error)
+	Read(string) (int64, io.Reader, error)
+	ReadEncryptedData([]byte, string, io.Reader) (int64, error)
+
+	Has(string) bool
+	Delete(string) error
 	Clear() error
 }
 
@@ -71,6 +74,10 @@ func NewCAS(opts CASOpts) *CAS {
 func (s *CAS) Write(key string, r io.Reader) (int64, error) {
 	return s.writeStream(key, r)
 }
+
+func (s *CAS) WriteEncryptedData(encKey []byte, key string, r io.Reader, dst io.Writer) (int64, error) {
+	return writeEncryptedData(encKey, r, dst)
+}
 func (s *CAS) writeStream(key string, r io.Reader) (int64, error) {
 	pathname := s.TransformFunc(key)
 	// joins the root with the generated hashed path root/*/*/*...
@@ -102,13 +109,30 @@ func (s *CAS) Read(key string) (int64, io.Reader, error) {
 	stat, err := f.Stat()
 	return stat.Size(), f, err
 }
+func (s *CAS) ReadEncryptedData(encKey []byte, key string, r io.Reader) (int64, error) {
+	f, err := s.openFileToWrite(key)
+	if err != nil {
+		return 0, err
+	}
+	return readEncryptedData(encKey, r, f)
+}
 
+func (s *CAS) openFileToWrite(key string) (*os.File, error) {
+	pathname := s.TransformFunc(key)
+	// joins the root with the generated hashed path root/*/*/*...
+	withRoot := pathname.WithRoot(s.RootPath)
+	if err := os.MkdirAll(withRoot, os.ModePerm); err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	fullPathName := fmt.Sprintf("%s/%s", s.RootPath, pathname.GetFullPath())
+	return os.Create(fullPathName)
+}
 func (s *CAS) readStream(key string) (*os.File, error) {
 	path := s.TransformFunc(key)
 	fullpath := fmt.Sprintf("%s/%s", path.WithRoot(s.RootPath), path.Filename)
 	return os.Open(fullpath)
 }
-
 func (s *CAS) Has(key string) bool {
 	path := s.TransformFunc(key)
 	fullPathWithRoot := fmt.Sprintf("%s/%s", path.WithRoot(s.RootPath), path.Filename)

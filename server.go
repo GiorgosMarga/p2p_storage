@@ -16,6 +16,7 @@ type FileServerOpts struct {
 	Transport      p2plib.Transport
 	OnPeer         func(p2plib.Peer) error
 	BootstrapNodes []string
+	EncKey         []byte
 }
 
 type FileServer struct {
@@ -33,7 +34,9 @@ func NewFileServer(listenAddr string, opts FileServerOpts) *FileServer {
 		TransformFunc: TransformFunc,
 		RootPath:      listenAddr + "_storage",
 	}
-
+	if len(opts.EncKey) == 0 {
+		opts.EncKey = generateKey()
+	}
 	return &FileServer{
 		storage:        NewCAS(casOpts),
 		FileServerOpts: opts,
@@ -170,19 +173,22 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	}
 	msg := Message{
 		Payload: MessageStoreData{
-			Key:  key,
-			Size: n,
+			Key:  encryptFileKey(key),
+			Size: n + int64(IV_SIZE),
 		},
 	}
 	if err := s.broadcast(&msg); err != nil {
 		return err
 	}
 	time.Sleep(10 * time.Millisecond)
+	peers := []io.Writer{}
 	for _, peer := range s.peers {
-		peer.Send([]byte{p2plib.IncomingStream})
-		if _, err := io.Copy(peer, buf); err != nil {
-			return err
-		}
+		peers = append(peers, peer)
+	}
+	mw := io.MultiWriter(peers...)
+	mw.Write([]byte{p2plib.IncomingStream})
+	if _, err := writeEncryptedData(s.EncKey, buf, mw); err != nil {
+		return err
 	}
 
 	return nil
@@ -197,14 +203,13 @@ func (s *FileServer) Read(key string) (io.Reader, error) {
 
 	msg := Message{
 		Payload: MessageReadData{
-			Key: key,
+			Key: encryptFileKey(key),
 		},
 	}
 
 	if err := s.broadcast(&msg); err != nil {
 		return nil, err
 	}
-	fmt.Println(s.peers)
 	for _, peer := range s.peers {
 		peekBuf := make([]byte, 1)
 		peer.Read(peekBuf)
@@ -214,8 +219,8 @@ func (s *FileServer) Read(key string) (io.Reader, error) {
 		}
 		var filesize int64
 		binary.Read(peer, binary.LittleEndian, &filesize)
-		fileReader := io.LimitReader(peer, filesize)
-		if _, err := s.storage.Write(key, fileReader); err != nil {
+		_, err := s.storage.ReadEncryptedData(s.EncKey, key, io.LimitReader(peer, filesize))
+		if err != nil {
 			return nil, err
 		}
 		peer.CloseStream()

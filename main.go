@@ -30,6 +30,7 @@ func main() {
 	var (
 		s1 = makeServer(":3000")
 		s2 = makeServer(":4000", ":3000")
+		s3 = makeServer(":5000", ":3000", ":4000")
 	)
 
 	if err := s1.Start(); err != nil {
@@ -38,29 +39,28 @@ func main() {
 	if err := s2.Start(); err != nil {
 		log.Fatal(err)
 	}
+	if err := s3.Start(); err != nil {
+		log.Fatal(err)
+	}
 	time.Sleep(1 * time.Second)
 
-	data := []byte("test data")
-	key := "my_key"
+	for i := 0; i < 10; i++ {
+		data := []byte("test data")
+		key := fmt.Sprintf("key_%d", i)
+		if err := s2.Store(key, bytes.NewReader(data)); err != nil {
+			log.Fatal(err)
+		}
+		if err := s2.storage.Delete(key); err != nil {
+			log.Fatal(err)
+		}
+		r, err := s2.Read(key)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fileBuf, _ := io.ReadAll(r)
+		fmt.Println(string(fileBuf))
+		time.Sleep(500 * time.Millisecond)
+	}
 
-	if err := s2.Store(key, bytes.NewReader(data)); err != nil {
-		log.Fatal(err)
-	}
-	if err := s2.storage.Delete(key); err != nil {
-		fmt.Println("Deleting:", err)
-	}
-	r, err := s2.Read(key)
-	if err != nil {
-		log.Fatal(err)
-	}
-	b, _ := io.ReadAll(r)
-	fmt.Println(string(b))
-	// for i := 0; i < 10; i++ {
-	// 	key := fmt.Sprintf("test_key_%d", i)
-	// 	if err := s2.Store(key, bytes.NewReader(data)); err != nil {
-	// 		log.Fatal(err)
-	// 	}
-	// 	time.Sleep(time.Millisecond * 100)
-	// }
 	time.Sleep(1 * time.Second)
 }
