@@ -11,13 +11,13 @@ import (
 )
 
 type Storage interface {
-	Write(string, io.Reader) (int64, error)
+	Write(string, string, io.Reader) (int64, error)
 	WriteEncryptedData([]byte, string, io.Reader, io.Writer) (int64, error)
-	Read(string) (int64, io.Reader, error)
-	ReadEncryptedData([]byte, string, io.Reader) (int64, error)
+	Read(string, string) (int64, io.Reader, error)
+	ReadEncryptedData([]byte, string, string, io.Reader) (int64, error)
 
-	Has(string) bool
-	Delete(string) error
+	Has(string, string) bool
+	Delete(string, string) error
 	Clear() error
 }
 
@@ -29,8 +29,8 @@ type Path struct {
 func (f *Path) GetFullPath() string {
 	return fmt.Sprintf("%s/%s", f.Path, f.Filename)
 }
-func (f *Path) WithRoot(root string) string {
-	return fmt.Sprintf("%s/%s", root, f.Path)
+func (f *Path) WithRoot(root, id string) string {
+	return fmt.Sprintf("%s/%s/%s", root, id, f.Path)
 }
 func (f *Path) ParentFolder() string {
 	blocks := strings.Split(f.Path, "/")
@@ -71,22 +71,22 @@ func NewCAS(opts CASOpts) *CAS {
 	}
 }
 
-func (s *CAS) Write(key string, r io.Reader) (int64, error) {
-	return s.writeStream(key, r)
+func (s *CAS) Write(key, ID string, r io.Reader) (int64, error) {
+	return s.writeStream(key, ID, r)
 }
 
 func (s *CAS) WriteEncryptedData(encKey []byte, key string, r io.Reader, dst io.Writer) (int64, error) {
 	return writeEncryptedData(encKey, r, dst)
 }
-func (s *CAS) writeStream(key string, r io.Reader) (int64, error) {
+func (s *CAS) writeStream(key, ID string, r io.Reader) (int64, error) {
 	pathname := s.TransformFunc(key)
 	// joins the root with the generated hashed path root/*/*/*...
-	withRoot := pathname.WithRoot(s.RootPath)
+	withRoot := pathname.WithRoot(s.RootPath, ID)
 	if err := os.MkdirAll(withRoot, os.ModePerm); err != nil {
 		fmt.Println(err)
 		return 0, err
 	}
-	fullPathName := fmt.Sprintf("%s/%s", s.RootPath, pathname.GetFullPath())
+	fullPathName := fmt.Sprintf("%s/%s/%s", s.RootPath, ID, pathname.GetFullPath())
 	f, err := os.Create(fullPathName)
 	if err != nil {
 		fmt.Println(err)
@@ -101,49 +101,55 @@ func (s *CAS) writeStream(key string, r io.Reader) (int64, error) {
 	return n, nil
 }
 
-func (s *CAS) Read(key string) (int64, io.Reader, error) {
-	f, err := s.readStream(key)
+func (s *CAS) Read(key, ID string) (int64, io.Reader, error) {
+	f, err := s.readStream(key, ID)
 	if err != nil {
 		return 0, nil, err
 	}
 	stat, err := f.Stat()
 	return stat.Size(), f, err
 }
-func (s *CAS) ReadEncryptedData(encKey []byte, key string, r io.Reader) (int64, error) {
-	f, err := s.openFileToWrite(key)
+func (s *CAS) ReadEncryptedData(encKey []byte, key, ID string, r io.Reader) (int64, error) {
+	f, err := s.openFileToWrite(key, ID)
 	if err != nil {
 		return 0, err
 	}
 	return readEncryptedData(encKey, r, f)
 }
 
-func (s *CAS) openFileToWrite(key string) (*os.File, error) {
+func (s *CAS) openFileToWrite(key, ID string) (*os.File, error) {
 	pathname := s.TransformFunc(key)
 	// joins the root with the generated hashed path root/*/*/*...
-	withRoot := pathname.WithRoot(s.RootPath)
+	withRoot := pathname.WithRoot(s.RootPath, ID)
 	if err := os.MkdirAll(withRoot, os.ModePerm); err != nil {
 		fmt.Println(err)
 		return nil, err
 	}
-	fullPathName := fmt.Sprintf("%s/%s", s.RootPath, pathname.GetFullPath())
+	fullPathName := fmt.Sprintf("%s/%s/%s", s.RootPath, ID, pathname.GetFullPath())
+
 	return os.Create(fullPathName)
 }
-func (s *CAS) readStream(key string) (*os.File, error) {
+func (s *CAS) readStream(key, ID string) (*os.File, error) {
 	path := s.TransformFunc(key)
-	fullpath := fmt.Sprintf("%s/%s", path.WithRoot(s.RootPath), path.Filename)
+	fullpath := fmt.Sprintf("%s/%s", path.WithRoot(s.RootPath, ID), path.Filename)
 	return os.Open(fullpath)
 }
-func (s *CAS) Has(key string) bool {
+func (s *CAS) Has(key, ID string) bool {
 	path := s.TransformFunc(key)
-	fullPathWithRoot := fmt.Sprintf("%s/%s", path.WithRoot(s.RootPath), path.Filename)
+	fullPathWithRoot := fmt.Sprintf("%s/%s", path.WithRoot(s.RootPath, ID), path.Filename)
 	_, err := os.Stat(fullPathWithRoot)
 	return !errors.Is(err, os.ErrNotExist)
 }
 
-func (s *CAS) Delete(key string) error {
+func (s *CAS) Delete(key, ID string) error {
 	path := s.TransformFunc(key)
-	pathToDelete := fmt.Sprintf("%s/%s", s.RootPath, path.ParentFolder())
-	return os.RemoveAll(pathToDelete)
+	pathToDelete := fmt.Sprintf("%s/%s/%s", s.RootPath, ID, path.ParentFolder())
+	err := os.RemoveAll(pathToDelete)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("File (%s) was deleted\n", key)
+	return nil
 }
 func (s *CAS) Clear() error {
 	return os.RemoveAll(s.RootPath)

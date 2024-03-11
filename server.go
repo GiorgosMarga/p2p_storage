@@ -17,6 +17,7 @@ type FileServerOpts struct {
 	OnPeer         func(p2plib.Peer) error
 	BootstrapNodes []string
 	EncKey         []byte
+	ID             string
 }
 
 type FileServer struct {
@@ -36,6 +37,9 @@ func NewFileServer(listenAddr string, opts FileServerOpts) *FileServer {
 	}
 	if len(opts.EncKey) == 0 {
 		opts.EncKey = generateKey()
+	}
+	if len(opts.ID) == 0 {
+		opts.ID = generateID()
 	}
 	return &FileServer{
 		storage:        NewCAS(casOpts),
@@ -96,16 +100,16 @@ func (s *FileServer) HandleMessages() error {
 func (s *FileServer) handleMessageReadData(msg MessageReadData, from string) error {
 	peer, ok := s.peers[from]
 	if !ok {
-		return fmt.Errorf("peer not connected")
+		return fmt.Errorf("[%s] peer (%s) not found", s.Transport.Addr(), peer.RemoteAddr())
 	}
 	peer.Send([]byte{p2plib.IncomingStream})
 
-	if !s.storage.Has(msg.Key) {
+	if !s.storage.Has(msg.Key, msg.ID) {
 		peer.Send([]byte{p2plib.DontHaveFile})
 		return fmt.Errorf("[%s] dont have file (%s)", s.Transport.Addr(), msg.Key)
 	}
 
-	size, file, err := s.storage.Read(msg.Key)
+	size, file, err := s.storage.Read(msg.Key, msg.ID)
 	if err != nil {
 		return err
 	}
@@ -118,17 +122,17 @@ func (s *FileServer) handleMessageReadData(msg MessageReadData, from string) err
 func (s *FileServer) handleMessageStoreData(msg MessageStoreData, from string) error {
 	peer, ok := s.peers[from]
 	if !ok {
-		return fmt.Errorf("peer not connected")
+		return fmt.Errorf("[%s] peer (%s) not found", s.Transport.Addr(), peer.RemoteAddr())
 	}
 	r := io.LimitReader(peer, msg.Size)
-	n, err := s.storage.Write(msg.Key, r)
+	n, err := s.storage.Write(msg.Key, msg.ID, r)
 
 	if err != nil {
 		fmt.Println("Error:", err)
 		return err
 	}
 
-	fmt.Printf("received message from %s and wrote %d on disk\n", from, n)
+	fmt.Printf("[%s] received message from %s and wrote %d on disk\n", s.Transport.Addr(), from, n)
 	peer.CloseStream()
 	return nil
 }
@@ -142,9 +146,11 @@ type Message struct {
 type MessageStoreData struct {
 	Key  string
 	Size int64
+	ID   string
 }
 type MessageReadData struct {
 	Key string
+	ID  string
 }
 
 func (s *FileServer) broadcast(msg *Message) error {
@@ -167,7 +173,7 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 		buf = new(bytes.Buffer)
 		tee = io.TeeReader(r, buf)
 	)
-	n, err := s.storage.Write(key, tee)
+	n, err := s.storage.Write(key, s.ID, tee)
 	if err != nil {
 		return err
 	}
@@ -175,6 +181,7 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 		Payload: MessageStoreData{
 			Key:  encryptFileKey(key),
 			Size: n + int64(IV_SIZE),
+			ID:   s.ID,
 		},
 	}
 	if err := s.broadcast(&msg); err != nil {
@@ -195,15 +202,16 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 }
 
 func (s *FileServer) Read(key string) (io.Reader, error) {
-	if s.storage.Has(key) {
+	if s.storage.Has(key, s.ID) {
 		fmt.Printf("[%s] found file (%s) on disk.\n", s.Transport.Addr(), key)
-		_, r, err := s.storage.Read(key)
+		_, r, err := s.storage.Read(key, s.ID)
 		return r, err
 	}
 
 	msg := Message{
 		Payload: MessageReadData{
 			Key: encryptFileKey(key),
+			ID:  s.ID,
 		},
 	}
 
@@ -219,7 +227,7 @@ func (s *FileServer) Read(key string) (io.Reader, error) {
 		}
 		var filesize int64
 		binary.Read(peer, binary.LittleEndian, &filesize)
-		_, err := s.storage.ReadEncryptedData(s.EncKey, key, io.LimitReader(peer, filesize))
+		_, err := s.storage.ReadEncryptedData(s.EncKey, key, s.ID, io.LimitReader(peer, filesize))
 		if err != nil {
 			return nil, err
 		}
@@ -229,7 +237,7 @@ func (s *FileServer) Read(key string) (io.Reader, error) {
 			break
 		}
 	}
-	_, r, err := s.storage.Read(key)
+	_, r, err := s.storage.Read(key, s.ID)
 	return r, err
 }
 

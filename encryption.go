@@ -12,6 +12,12 @@ import (
 
 const IV_SIZE int = 16
 
+func generateID() string {
+	b := make([]byte, 16)
+	io.ReadFull(rand.Reader, b)
+	return hex.EncodeToString(b)
+}
+
 func generateKey() []byte {
 	b := make([]byte, 32)
 	io.ReadFull(rand.Reader, b)

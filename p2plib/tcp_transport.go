@@ -44,7 +44,7 @@ type TCPTransport struct {
 func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
 	return &TCPTransport{
 		TCPTransportOpts: opts,
-		rpcchan:          make(chan RPC),
+		rpcchan:          make(chan RPC, 10),
 	}
 }
 

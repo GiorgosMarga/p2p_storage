@@ -44,13 +44,13 @@ func main() {
 	}
 	time.Sleep(1 * time.Second)
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100; i++ {
 		data := []byte("test data")
 		key := fmt.Sprintf("key_%d", i)
 		if err := s2.Store(key, bytes.NewReader(data)); err != nil {
 			log.Fatal(err)
 		}
-		if err := s2.storage.Delete(key); err != nil {
+		if err := s2.storage.Delete(key, s2.ID); err != nil {
 			log.Fatal(err)
 		}
 		r, err := s2.Read(key)
