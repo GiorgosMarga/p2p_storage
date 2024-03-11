@@ -1,5 +1,10 @@
 package main
 
+// TODO: - add delete
+//		 - add syncing
+//       - refactor store pathing
+//       - make more tests
+
 import (
 	"bytes"
 	"fmt"
