@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 )
 
 type TCPPeer struct {
 	net.Conn
-	wg *sync.WaitGroup
+	wg         *sync.WaitGroup
+	outbould   bool
+	ListenAddr string
 }
 
 func NewTCPPeer(conn net.Conn) *TCPPeer {
@@ -29,11 +32,15 @@ func (p *TCPPeer) Send(b []byte) error {
 	return nil
 }
 
+func (p *TCPPeer) setListenAddr(addr string) {
+	p.ListenAddr = strings.Split(p.RemoteAddr().String(), ":")[0] + addr
+}
+
 type TCPTransportOpts struct {
 	ListenAddr    string
 	HandshakeFunc HandshakeFunc
 	Decoder       Decoder
-	OnPeer        func(Peer) error
+	OnPeer        func(Peer, bool) error
 }
 type TCPTransport struct {
 	TCPTransportOpts
@@ -66,27 +73,38 @@ func (tr *TCPTransport) acceptLoop() {
 		if err != nil {
 			continue
 		}
-
-		go tr.handleConn(conn)
+		go tr.handleConn(conn, false)
 	}
 }
 
-func (tr *TCPTransport) handleConn(conn net.Conn) {
+func (tr *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 	p := NewTCPPeer(conn)
+
+	if outbound {
+		p.Write([]byte(tr.Addr()))
+		p.ListenAddr = conn.RemoteAddr().String()
+	} else {
+		b := make([]byte, 1024)
+		n, err := p.Read(b)
+		if err != nil {
+			log.Fatal(err)
+		}
+		p.setListenAddr(string(b[:n]))
+	}
+
 	if tr.HandshakeFunc != nil {
 		if err := tr.HandshakeFunc(p); err != nil {
 			return
 		}
 	}
 	if tr.OnPeer != nil {
-		if err := tr.OnPeer(p); err != nil {
+		if err := tr.OnPeer(p, outbound); err != nil {
 			return
 		}
 	}
 
 	for {
 		rpc := RPC{}
-
 		if err := tr.Decoder.Decode(conn, &rpc); err != nil {
 			log.Println(err)
 			continue
@@ -109,7 +127,7 @@ func (tr *TCPTransport) Dial(addr string) error {
 	if err != nil {
 		return err
 	}
-	go tr.handleConn(conn)
+	go tr.handleConn(conn, true)
 	return nil
 }
 

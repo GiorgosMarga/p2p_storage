@@ -1,7 +1,6 @@
 package main
 
 // TODO:
-//		 - add syncing
 //       - refactor store pathing
 // 		 - add peer discovery
 //       - make more tests
@@ -35,7 +34,9 @@ func main() {
 	var (
 		s1 = makeServer(":3000")
 		s2 = makeServer(":4000", ":3000")
-		s3 = makeServer(":5000", ":3000", ":4000")
+		s3 = makeServer(":5000", ":4000")
+		s4 = makeServer(":6000", ":5000")
+		s5 = makeServer(":7000", ":6000")
 	)
 
 	if err := s1.Start(); err != nil {
@@ -47,23 +48,30 @@ func main() {
 	if err := s3.Start(); err != nil {
 		log.Fatal(err)
 	}
+	if err := s4.Start(); err != nil {
+		log.Fatal(err)
+	}
+	if err := s5.Start(); err != nil {
+		log.Fatal(err)
+	}
 	time.Sleep(1 * time.Second)
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 5; i++ {
 		data := []byte("test data")
 		key := fmt.Sprintf("key_%d", i)
 		if err := s2.Store(key, bytes.NewReader(data)); err != nil {
 			log.Fatal(err)
 		}
-		if err := s2.storage.Delete(key, s2.ID); err != nil {
-			log.Fatal(err)
-		}
+		// if err := s2.storage.Delete(key, s2.ID); err != nil {
+		// 	log.Fatal(err)
+		// }
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	if err := s2.SyncStorage(); err != nil {
-		log.Fatal(err)
-	}
+	// if err := s2.SyncStorage(); err != nil {
+	// 	log.Fatal(err)
+	// }
 
 	time.Sleep(1 * time.Second)
+
 }

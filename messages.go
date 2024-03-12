@@ -21,3 +21,7 @@ type MessageDeleteData struct {
 type MessageSyncData struct {
 	ID string
 }
+
+type MessageDiscovery struct {
+	Peers []string
+}

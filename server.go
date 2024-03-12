@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"io"
+	"log"
 	"sync"
 	"time"
 
@@ -49,12 +50,38 @@ func NewFileServer(listenAddr string, opts FileServerOpts) *FileServer {
 	}
 }
 
-func (s *FileServer) OnPeer(p p2plib.Peer) error {
+func (s *FileServer) OnPeer(p p2plib.Peer, outbound bool) error {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
 
+	if !outbound {
+		// fmt.Printf("[%s] !outbould %s\n", s.Transport.Addr(), p.(*p2plib.TCPPeer).ListenAddr)
+		peers := make([]string, 0)
+		for _, p := range s.peers {
+			peers = append(peers, p.(*p2plib.TCPPeer).ListenAddr)
+		}
+		msg := Message{
+			Payload: MessageDiscovery{
+				Peers: peers,
+			},
+		}
+		buf := new(bytes.Buffer)
+		if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+			log.Fatal(err)
+		}
+		if err := p.Send([]byte{p2plib.IncomingMessage}); err != nil {
+			log.Fatal(err)
+		}
+		if err := p.Send(buf.Bytes()); err != nil {
+			log.Fatal(err)
+		}
+
+	}
+
 	s.peers[p.RemoteAddr().String()] = p
-	fmt.Printf("[%s] has connected with %s\n", s.Transport.Addr(), p.RemoteAddr().String())
+
+	fmt.Printf("[%s] has connected with %s\n", s.Transport.Addr(), p.RemoteAddr())
+
 	return nil
 }
 
@@ -95,11 +122,25 @@ func (s *FileServer) HandleMessages() error {
 				s.handleMessageDeleteData(v, rpc.From)
 			case MessageSyncData:
 				s.handleMessageSyncData(v, rpc.From)
+			case MessageDiscovery:
+				s.handleMessageDiscovery(v, rpc.From)
 			}
 		case <-s.quitchan:
 			return nil
 		}
 	}
+}
+func (s *FileServer) handleMessageDiscovery(msg MessageDiscovery, from string) error {
+	for _, addr := range msg.Peers {
+		if _, ok := s.peers[addr]; ok {
+			continue
+		}
+		fmt.Printf("[%s] discovered %s\n", s.Transport.Addr(), addr)
+		if err := s.Transport.Dial(addr); err != nil {
+			log.Fatal(err)
+		}
+	}
+	return nil
 }
 
 // TODO: check if i can retrieve key of file (maybe encrypt instead of hashing)
@@ -309,5 +350,6 @@ func init() {
 	gob.Register(MessageStoreData{})
 	gob.Register(MessageReadData{})
 	gob.Register(MessageDeleteData{})
+	gob.Register(MessageDiscovery{})
 	gob.Register(MessageSyncData{})
 }
