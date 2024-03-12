@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -15,7 +17,7 @@ type Storage interface {
 	WriteEncryptedData([]byte, string, io.Reader, io.Writer) (int64, error)
 	Read(string, string) (int64, io.Reader, error)
 	ReadEncryptedData([]byte, string, string, io.Reader) (int64, error)
-
+	FindAll(string) ([]int64, []io.Reader, error)
 	Has(string, string) bool
 	Delete(string, string) error
 	Clear() error
@@ -43,6 +45,13 @@ func TransformFunc(key string) Path {
 	hash := sha1.Sum([]byte(key))
 	hashEnc := hex.EncodeToString(hash[:])
 	blockSize := 5
+	path := generatePath(hashEnc, blockSize)
+	return Path{
+		Path:     path,
+		Filename: hashEnc,
+	}
+}
+func generatePath(hashEnc string, blockSize int) string {
 	path := ""
 	for i := 0; i < len(hashEnc); i++ {
 		if i != 0 && i%blockSize == 0 {
@@ -50,10 +59,7 @@ func TransformFunc(key string) Path {
 		}
 		path += string(hashEnc[i])
 	}
-	return Path{
-		Path:     path,
-		Filename: hashEnc,
-	}
+	return path
 }
 
 type CASOpts struct {
@@ -153,4 +159,44 @@ func (s *CAS) Delete(key, ID string) error {
 }
 func (s *CAS) Clear() error {
 	return os.RemoveAll(s.RootPath)
+}
+
+func (s *CAS) FindAll(ID string) ([]int64, []io.Reader, error) {
+	files := []io.Reader{}
+	sizes := make([]int64, 0)
+	fileNames := make([]string, 0)
+	path := fmt.Sprintf("%s/%s/", s.RootPath, ID)
+	filepath.Walk(path, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			fmt.Printf("prevent panic by handling failure accessing a path %q: %v\n", path, err)
+			return err
+		}
+		if !info.IsDir() {
+			fileNames = append(fileNames, info.Name())
+			return filepath.SkipDir
+		}
+		return nil
+	})
+
+	for _, filename := range fileNames {
+		n, r, err := s.findFile(filename, ID)
+		if err != nil {
+			fmt.Println(err)
+			return nil, nil, err
+		}
+		sizes = append(sizes, n)
+		files = append(files, r)
+	}
+	return sizes, files, nil
+}
+
+func (s *CAS) findFile(hashedKey string, ID string) (int64, io.Reader, error) {
+	path := generatePath(hashedKey, 5)
+	fullPath := fmt.Sprintf("%s/%s/%s/%s", s.RootPath, ID, path, hashedKey)
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return 0, nil, err
+	}
+	stat, err := f.Stat()
+	return stat.Size(), f, err
 }

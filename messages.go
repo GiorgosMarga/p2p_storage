@@ -17,3 +17,7 @@ type MessageDeleteData struct {
 	Key string
 	ID  string
 }
+
+type MessageSyncData struct {
+	ID string
+}

@@ -93,11 +93,37 @@ func (s *FileServer) HandleMessages() error {
 				s.handleMessageReadData(v, rpc.From)
 			case MessageDeleteData:
 				s.handleMessageDeleteData(v, rpc.From)
+			case MessageSyncData:
+				s.handleMessageSyncData(v, rpc.From)
 			}
 		case <-s.quitchan:
 			return nil
 		}
 	}
+}
+
+// TODO: check if i can retrieve key of file (maybe encrypt instead of hashing)
+// FIXME: fix duplicate files
+
+func (s *FileServer) handleMessageSyncData(msg MessageSyncData, from string) error {
+	peer, ok := s.peers[from]
+	if !ok {
+		return fmt.Errorf("[%s] peer (%s) not found", s.Transport.Addr(), peer.RemoteAddr())
+	}
+
+	sizes, files, err := s.storage.FindAll(msg.ID)
+	if err != nil {
+		return err
+	}
+	peer.Send([]byte{p2plib.IncomingStream})
+	binary.Write(peer, binary.LittleEndian, int64(len(files)))
+	for i := 0; i < len(files); i++ {
+		binary.Write(peer, binary.LittleEndian, sizes[i])
+		if _, err := io.Copy(peer, files[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (s *FileServer) handleMessageDeleteData(msg MessageDeleteData, from string) error {
 	peer, ok := s.peers[from]
@@ -137,7 +163,6 @@ func (s *FileServer) handleMessageStoreData(msg MessageStoreData, from string) e
 	n, err := s.storage.Write(msg.Key, msg.ID, r)
 
 	if err != nil {
-		fmt.Println("Error:", err)
 		return err
 	}
 
@@ -255,12 +280,34 @@ func (s *FileServer) Delete(key string) error {
 	return nil
 }
 
-// func (s *FileServer) SyncStorage() error {
+func (s *FileServer) SyncStorage() error {
+	fmt.Printf("[%s] trying to sync...\n", s.Transport.Addr())
+	msg := Message{
+		Payload: MessageSyncData{
+			ID: s.ID,
+		},
+	}
 
-// }
+	if err := s.broadcast(&msg); err != nil {
+		return err
+	}
+	var numOfFiles int64
+	for _, peer := range s.peers {
+		binary.Read(peer, binary.LittleEndian, &numOfFiles)
+		for i := 0; i < int(numOfFiles); i++ {
+			var fileSize int64
+			binary.Read(peer, binary.LittleEndian, &fileSize)
+			s.storage.ReadEncryptedData(s.EncKey, string(generateKey()), s.ID, io.LimitReader(peer, fileSize))
+		}
+		peer.CloseStream()
+	}
+	fmt.Printf("[%s] received %d files\n", s.Transport.Addr(), numOfFiles)
+	return nil
+}
 
 func init() {
 	gob.Register(MessageStoreData{})
 	gob.Register(MessageReadData{})
 	gob.Register(MessageDeleteData{})
+	gob.Register(MessageSyncData{})
 }

@@ -28,16 +28,17 @@ func TestWrite(t *testing.T) {
 		TransformFunc: TransformFunc,
 	})
 	assert.NotNil(t, s)
+	id := generateID()
 	key := "testkey"
 	data := []byte("test data")
-	_, err := s.writeStream(key, bytes.NewReader(data))
+	_, err := s.writeStream(key, id, bytes.NewReader(data))
 	assert.Nil(t, err)
 
-	assert.True(t, s.Has(key))
+	assert.True(t, s.Has(key, id))
 
-	err = s.Delete(key)
+	err = s.Delete(key, id)
 	assert.Nil(t, err)
-	has := s.Has(key)
+	has := s.Has(key, id)
 	fmt.Println(has)
 	assert.False(t, has)
 
@@ -49,15 +50,37 @@ func TestRead(t *testing.T) {
 		TransformFunc: TransformFunc,
 	})
 	assert.NotNil(t, s)
+	id := generateID()
+
 	key := "testkey"
 	data := []byte("test data")
-	s.writeStream(key, bytes.NewReader(data))
+	s.writeStream(key, id, bytes.NewReader(data))
 
-	_, r, err := s.Read(key)
+	_, r, err := s.Read(key, id)
 	assert.Nil(t, err)
 	buf := make([]byte, 1024)
 	r.Read(buf)
 	fmt.Println("Data:", string(buf))
-	assert.Nil(t, s.Delete(key))
+	assert.Nil(t, s.Delete(key, id))
 	assert.Nil(t, s.Clear())
+}
+
+func TestFindAll(t *testing.T) {
+	s := NewCAS(CASOpts{
+		RootPath:      "root_path",
+		TransformFunc: TransformFunc,
+	})
+	assert.NotNil(t, s)
+	id := generateID()
+
+	for i := 0; i < 10; i++ {
+		key := fmt.Sprintf("key_%d", i)
+		data := []byte("test data")
+		s.Write(key, id, bytes.NewReader(data))
+	}
+	// s.writeStream(key, id, bytes.NewReader(data))
+	sizes, readers, err := s.FindAll(id)
+	assert.Nil(t, err)
+	fmt.Println(sizes)
+	fmt.Println(readers)
 }

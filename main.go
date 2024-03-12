@@ -49,17 +49,20 @@ func main() {
 	}
 	time.Sleep(1 * time.Second)
 
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 10; i++ {
 		data := []byte("test data")
 		key := fmt.Sprintf("key_%d", i)
 		if err := s2.Store(key, bytes.NewReader(data)); err != nil {
 			log.Fatal(err)
 		}
-		time.Sleep(10 * time.Second)
-		if err := s2.Delete(key); err != nil {
+		if err := s2.storage.Delete(key, s2.ID); err != nil {
 			log.Fatal(err)
 		}
 		time.Sleep(500 * time.Millisecond)
+	}
+
+	if err := s2.SyncStorage(); err != nil {
+		log.Fatal(err)
 	}
 
 	time.Sleep(1 * time.Second)
