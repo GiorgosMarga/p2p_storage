@@ -1,14 +1,14 @@
 package main
 
-// TODO: - add delete
+// TODO:
 //		 - add syncing
 //       - refactor store pathing
+// 		 - add peer discovery
 //       - make more tests
 
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"time"
 
@@ -49,21 +49,16 @@ func main() {
 	}
 	time.Sleep(1 * time.Second)
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1; i++ {
 		data := []byte("test data")
 		key := fmt.Sprintf("key_%d", i)
 		if err := s2.Store(key, bytes.NewReader(data)); err != nil {
 			log.Fatal(err)
 		}
-		if err := s2.storage.Delete(key, s2.ID); err != nil {
+		time.Sleep(10 * time.Second)
+		if err := s2.Delete(key); err != nil {
 			log.Fatal(err)
 		}
-		r, err := s2.Read(key)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fileBuf, _ := io.ReadAll(r)
-		fmt.Println(string(fileBuf))
 		time.Sleep(500 * time.Millisecond)
 	}
 

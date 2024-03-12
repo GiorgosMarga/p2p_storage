@@ -54,7 +54,7 @@ func (s *FileServer) OnPeer(p p2plib.Peer) error {
 	defer s.peersLock.Unlock()
 
 	s.peers[p.RemoteAddr().String()] = p
-	fmt.Printf("connected with %s\n", p.RemoteAddr().String())
+	fmt.Printf("[%s] has connected with %s\n", s.Transport.Addr(), p.RemoteAddr().String())
 	return nil
 }
 
@@ -91,11 +91,20 @@ func (s *FileServer) HandleMessages() error {
 				s.handleMessageStoreData(v, rpc.From)
 			case MessageReadData:
 				s.handleMessageReadData(v, rpc.From)
+			case MessageDeleteData:
+				s.handleMessageDeleteData(v, rpc.From)
 			}
 		case <-s.quitchan:
 			return nil
 		}
 	}
+}
+func (s *FileServer) handleMessageDeleteData(msg MessageDeleteData, from string) error {
+	peer, ok := s.peers[from]
+	if !ok {
+		return fmt.Errorf("[%s] peer (%s) not found", s.Transport.Addr(), peer.RemoteAddr())
+	}
+	return s.storage.Delete(msg.Key, msg.ID)
 }
 func (s *FileServer) handleMessageReadData(msg MessageReadData, from string) error {
 	peer, ok := s.peers[from]
@@ -138,19 +147,6 @@ func (s *FileServer) handleMessageStoreData(msg MessageStoreData, from string) e
 }
 func (s *FileServer) Close() {
 	close(s.quitchan)
-}
-
-type Message struct {
-	Payload any
-}
-type MessageStoreData struct {
-	Key  string
-	Size int64
-	ID   string
-}
-type MessageReadData struct {
-	Key string
-	ID  string
 }
 
 func (s *FileServer) broadcast(msg *Message) error {
@@ -241,7 +237,30 @@ func (s *FileServer) Read(key string) (io.Reader, error) {
 	return r, err
 }
 
+func (s *FileServer) Delete(key string) error {
+	if err := s.storage.Delete(key, s.ID); err != nil {
+		return err
+	}
+
+	msg := Message{
+		Payload: MessageDeleteData{
+			Key: encryptFileKey(key),
+			ID:  s.ID,
+		},
+	}
+
+	if err := s.broadcast(&msg); err != nil {
+		return err
+	}
+	return nil
+}
+
+// func (s *FileServer) SyncStorage() error {
+
+// }
+
 func init() {
 	gob.Register(MessageStoreData{})
 	gob.Register(MessageReadData{})
+	gob.Register(MessageDeleteData{})
 }
