@@ -4,7 +4,8 @@ package main
 //       - refactor store pathing
 // 		 - add peer discovery
 //       - make more tests
-
+// FIXME:
+//		 - double connection on peer discovery
 import (
 	"bytes"
 	"fmt"
@@ -42,19 +43,32 @@ func main() {
 	if err := s1.Start(); err != nil {
 		log.Fatal(err)
 	}
+	time.Sleep(1 * time.Second)
 	if err := s2.Start(); err != nil {
 		log.Fatal(err)
 	}
+	time.Sleep(1 * time.Second)
+
 	if err := s3.Start(); err != nil {
 		log.Fatal(err)
 	}
+	time.Sleep(1 * time.Second)
+
 	if err := s4.Start(); err != nil {
 		log.Fatal(err)
 	}
+	time.Sleep(1 * time.Second)
+
 	if err := s5.Start(); err != nil {
 		log.Fatal(err)
 	}
 	time.Sleep(1 * time.Second)
+
+	fmt.Printf("%d\n", len(s1.peers))
+	fmt.Printf("%d\n", len(s2.peers))
+	fmt.Printf("%d\n", len(s3.peers))
+	fmt.Printf("%d\n", len(s4.peers))
+	fmt.Printf("%d\n", len(s5.peers))
 
 	for i := 0; i < 5; i++ {
 		data := []byte("test data")
